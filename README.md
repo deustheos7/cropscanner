@@ -1,0 +1,2 @@
+# cropscanner
+Ein Crop Scanner
