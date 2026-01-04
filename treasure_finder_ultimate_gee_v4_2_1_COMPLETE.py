@@ -2806,6 +2806,7 @@ class UltimateTreasureFinder:
                     f.write("  - < 0.3: Schwache Biomasse\n")
                     f.write(f"  - Dein Gebiet: {evi.mean():.3f} (Mean)\n\n")
                 
+                ndwi = indices.get('ndwi')
                 if ndwi is not None:
                     f.write("NDWI (Normalized Difference Water Index):\n")
                     f.write("  - > 0.7: Wasserstrukturen (Gräben/Kanäle) - WISSENSCHAFTLICH KORRIGIERT\n")
@@ -3167,7 +3168,12 @@ class UltimateTreasureFinder:
         # *** OPTIMIERT: Feature-basierte Confidence-Boosts ***
         # *** FIX: Duplicate call removed - characteristics already computed above ***
         for hotspot in hotspots:
-            # Characters already available from previous loop
+            # Characteristics already available from previous loop
+            # Defensive check to ensure characteristics exist
+            if 'characteristics' not in hotspot:
+                self.logger.warning(f"⚠️ Hotspot without characteristics, skipping boost calculation")
+                continue
+            
             chars = hotspot['characteristics']
             base_confidence = hotspot['confidence']
             feature_boost = 1.0
