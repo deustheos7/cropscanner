@@ -1075,8 +1075,17 @@ class UltimateTreasureFinder:
         
         NDWI = (GREEN - NIR) / (GREEN + NIR)
         
+        *** WISSENSCHAFTLICHE ANMERKUNG: ***
+        Es gibt zwei NDWI-Formeln:
+        1. McFeeters (1996): (Green - NIR) / (Green + NIR) - für offenes Wasser [VERWENDET]
+        2. Gao (1996): (NIR - SWIR) / (NIR + SWIR) - für Vegetationswasser
+        
+        Diese Implementation nutzt McFeeters NDWI, da Sentinel-2 SWIR nicht immer
+        verfügbar ist und für archäologische Wassergräben/Kanäle ausreichend.
+        
         *** WICHTIG: Original Range beibehalten (nicht normalisieren!) ***
         Typische Werte: -1 bis +1
+        Schwellwerte: > 0.3 = Wasser, > 0.7 = permanentes Wasser
         """
         try:
             ndwi = (green - nir) / (green + nir + 1e-8)
@@ -2137,9 +2146,10 @@ class UltimateTreasureFinder:
                             'ndvi': ndvi_local
                         }
                     
-                    # 3. NDWI > 0.9 = Permanent Wasser → Keine Fundstelle!
-                    #    (0.6-0.8 kann Graben sein, aber >0.9 ist zu nass)
-                    if ndwi_local > 0.9:
+                    # 3. NDWI > 0.7 = Permanent Wasser → Keine Fundstelle!
+                    #    (0.4-0.6 kann Graben sein, aber >0.7 ist zu nass)
+                    #    *** FIX: Wissenschaftlich korrekt von 0.9 auf 0.7 geändert ***
+                    if ndwi_local > 0.7:
                         self.logger.debug(f"      [FILTER] Verwerfe Hotspot bei ({px},{py}): NDWI={ndwi_local:.3f} (Permanent Wasser)")
                         return {
                             'invalid': True,
@@ -2283,13 +2293,17 @@ class UltimateTreasureFinder:
         contrast = chars.get('seasonal_contrast', 1.0)
         ndvi_value = chars.get('ndvi', 0.5)
         
-        # *** FIX: WALD-WARNUNG! ***
-        # Hoher NDVI + niedriger Seasonal Contrast = Wald, KEIN Crop Mark!
+        # *** FIX: WISSENSCHAFTLICH KORREKTE NDVI-INTERPRETATION ***
+        # Hoher NDVI (>0.7) + niedriger Contrast = Wald, KEIN Crop Mark!
+        # NDVI < 0.2 = Boden/Fels, auch nicht archäologisch relevant
+        # NDVI 0.2-0.5 + niedriger Contrast = ARCHÄOLOGISCH INTERESSANT!
         if ndvi_value > 0.7 and contrast < 0.15:
             explanations.append("⚠️ WARNUNG: Hoher NDVI + niedriger Contrast → Wahrscheinlich WALD, kein Crop Mark!")
-        elif contrast < 0.15 and ndvi_value < 0.5:
-            # Nur wenn NDVI auch niedrig ist, ist es relevant
-            explanations.append(f"🌱 SEASONAL: Geringes Wachstum (Δ={contrast:.2f}) → Struktur behindert Vegetation!")
+        elif ndvi_value < 0.2:
+            explanations.append(f"ℹ️ INFO: Sehr niedriger NDVI ({ndvi_value:.2f}) → Boden/Fels-Bereich")
+        elif 0.2 <= ndvi_value < 0.5 and contrast < 0.15:
+            # Perfekter Bereich für archäologische Anomalien!
+            explanations.append(f"🌱 SEASONAL: Geringes Wachstum (NDVI={ndvi_value:.2f}, Δ={contrast:.2f}) → Struktur behindert Vegetation!")
         
         if persistence >= 2 and chars.get('high_confidence', False):
             explanations.append("💎💎💎 *** ULTIMATE DETECTION: Multi-Jahr + High Confidence = ARCHÄOLOGISCHER FUND! ***")
@@ -2792,14 +2806,13 @@ class UltimateTreasureFinder:
                     f.write("  - < 0.3: Schwache Biomasse\n")
                     f.write(f"  - Dein Gebiet: {evi.mean():.3f} (Mean)\n\n")
                 
-                ndwi = indices.get('ndwi')
                 if ndwi is not None:
                     f.write("NDWI (Normalized Difference Water Index):\n")
-                    f.write("  - > 0.6: Wasserstrukturen (Gräben/Kanäle)\n")
+                    f.write("  - > 0.7: Wasserstrukturen (Gräben/Kanäle) - WISSENSCHAFTLICH KORRIGIERT\n")
                     f.write("  - > 0.4: Erhöhte Feuchtigkeit\n")
                     f.write(f"  - Dein Gebiet: {ndwi.mean():.3f} (Mean)\n")
-                    water_percent = (ndwi > 0.6).sum() / ndwi.size * 100
-                    f.write(f"  - {water_percent:.1f}% des Gebiets hat NDWI > 0.6\n\n")
+                    water_percent = (ndwi > 0.7).sum() / ndwi.size * 100
+                    f.write(f"  - {water_percent:.1f}% des Gebiets hat NDWI > 0.7\n\n")
             
             return True
             
@@ -3151,16 +3164,11 @@ class UltimateTreasureFinder:
         
         self.logger.info(f"✅ {len(hotspots)} valide Hotspots nach Filtering")
         
+        # *** OPTIMIERT: Feature-basierte Confidence-Boosts ***
+        # *** FIX: Duplicate call removed - characteristics already computed above ***
         for hotspot in hotspots:
-            chars = self.analyze_hotspot_characteristics(
-                hotspot['pixel_x'], hotspot['pixel_y'],
-                lidar_details, hist_details, aerial_details,
-                ultimate_correlation,
-                world_params=lidar_world  # *** FIX v4.2.0 ***
-            )
-            hotspot['characteristics'] = chars
-            
-            # *** OPTIMIERT: Feature-basierte Confidence-Boosts ***
+            # Characters already available from previous loop
+            chars = hotspot['characteristics']
             base_confidence = hotspot['confidence']
             feature_boost = 1.0
             
@@ -3231,28 +3239,34 @@ class UltimateTreasureFinder:
             
             # Seasonal Contrast: Niedriger Kontrast = Struktur behindert Wachstum
             # *** FIX: Nur bei niedrigem NDVI relevant! ***
+            # *** WISSENSCHAFTLICH KORREKT: Auch obere NDVI-Grenze prüfen! ***
             # Hoher NDVI (>0.6) + niedriger Contrast = Wald, KEIN Crop Mark!
             contrast = chars.get('seasonal_contrast', 1.0)
             ndvi_value = chars.get('ndvi', 1.0)  # Aktueller NDVI-Wert
             
-            # Nur booten wenn NDVI auch niedrig ist (< 0.5)
-            if ndvi_value < 0.5 and contrast < 0.10:
+            # Nur booten wenn NDVI im richtigen Bereich ist (0.2-0.5)
+            # Zu niedrig (< 0.2) = Boden/Fels
+            # Zu hoch (> 0.5) = gesunde Vegetation oder Wald
+            if 0.2 <= ndvi_value < 0.5 and contrast < 0.10:
                 feature_boost *= 1.5  # +50% (fast kein Wachstum!)
-                self.logger.debug(f"   [CONTRAST] Sehr niedriger Seasonal Contrast ({contrast:.2f}) + NDVI<0.5 → +50%")
-            elif ndvi_value < 0.5 and contrast < 0.15:
+                self.logger.debug(f"   [CONTRAST] Sehr niedriger Seasonal Contrast ({contrast:.2f}) + NDVI im Target-Bereich → +50%")
+            elif 0.2 <= ndvi_value < 0.5 and contrast < 0.15:
                 feature_boost *= 1.3  # +30%
-                self.logger.debug(f"   [CONTRAST] Niedriger Seasonal Contrast ({contrast:.2f}) + NDVI<0.5 → +30%")
-            elif ndvi_value < 0.5 and contrast < 0.20:
+                self.logger.debug(f"   [CONTRAST] Niedriger Seasonal Contrast ({contrast:.2f}) + NDVI im Target-Bereich → +30%")
+            elif 0.2 <= ndvi_value < 0.5 and contrast < 0.20:
                 feature_boost *= 1.15  # +15%
-            elif ndvi_value >= 0.5:
-                # Hoher NDVI = gesunde Vegetation, Contrast-Boost nicht anwenden
-                self.logger.debug(f"   [CONTRAST] NDVI zu hoch ({ndvi_value:.2f}), Contrast-Boost übersprungen")
+            elif ndvi_value >= 0.6:
+                # Hoher NDVI = wahrscheinlich Wald, Contrast-Boost nicht anwenden
+                self.logger.debug(f"   [CONTRAST] NDVI zu hoch ({ndvi_value:.2f}), wahrscheinlich Wald - Contrast-Boost übersprungen")
+            elif ndvi_value < 0.2:
+                # Zu niedriger NDVI = Boden/Fels, nicht archäologisch relevant
+                self.logger.debug(f"   [CONTRAST] NDVI zu niedrig ({ndvi_value:.2f}), wahrscheinlich Boden/Fels - Contrast-Boost übersprungen")
             
             # ULTIMATE COMBO: Persistenz + High Confidence + Seasonal Contrast!
-            # *** FIX: Auch hier NDVI-Check! ***
-            if persistence >= 2 and chars.get('high_confidence', False) and contrast < 0.15 and ndvi_value < 0.5:
+            # *** FIX: Auch hier NDVI-Range-Check! ***
+            if persistence >= 2 and chars.get('high_confidence', False) and contrast < 0.15 and 0.2 <= ndvi_value < 0.5:
                 feature_boost *= 1.3  # Weitere +30% für PERFEKTE Kombination!
-                self.logger.info(f"   🌟 ULTIMATE COMBO: Persist≥2 + HighConf + LowContrast + LowNDVI → +30%")
+                self.logger.info(f"   🌟 ULTIMATE COMBO: Persist≥2 + HighConf + LowContrast + NDVI-Range → +30%")
             
             # ═══════════════════════════════════════════════════════════
             
