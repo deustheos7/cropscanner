@@ -1349,7 +1349,18 @@ class UltimateTreasureFinder:
             
             # 1. NDVI-basiert: Sehr niedriger NDVI = Asphalt/Beton
             if nir is not None:
-                red = aerial_rgb[:, :, 0] if aerial_rgb.dtype == float else aerial_rgb[:, :, 0] / 255.0
+                # *** FIX: Ensure red is consistently normalized to 0-1 ***
+                # Check if aerial_rgb is float (could be 0-1 or 0-255) or uint8 (0-255)
+                if aerial_rgb.dtype == np.uint8:
+                    red = aerial_rgb[:, :, 0].astype(float) / 255.0
+                else:
+                    # For float dtype, normalize to 0-1 if values are > 1
+                    red_raw = aerial_rgb[:, :, 0].astype(float)
+                    if red_raw.max() > 1.0:
+                        red = red_raw / 255.0
+                    else:
+                        red = red_raw
+                
                 ndvi = (nir - red) / (nir + red + 1e-8)
                 # Asphalt/Beton hat NDVI < 0.2
                 asphalt_mask = ndvi < 0.2
@@ -2759,8 +2770,39 @@ class UltimateTreasureFinder:
             
             # Erstelle temporäres PNG für Ground-Overlay
             temp_png = output_path.replace('.kml', '_overlay.png')
-            idx_norm = (index_data * 255).astype(np.uint8)
-            idx_colored = cv2.applyColorMap(idx_norm, cv2.COLORMAP_JET)
+            
+            # *** FIX: Normalize based on index type before applying colormap ***
+            if index_name == 'ndvi':
+                # NDVI uses custom mapping
+                rgb = self._ndvi_to_rgb(index_data)
+                idx_colored = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            elif index_name == 'evi':
+                # EVI: -1 to +1
+                idx_norm = self.normalize_for_fusion(index_data, (-1.0, 1.0))
+                idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
+                idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
+            elif index_name == 'savi':
+                # SAVI: 0 to ~0.5
+                idx_norm = self.normalize_for_fusion(index_data, (0.0, 0.5))
+                idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
+                idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
+            elif index_name == 'ndwi':
+                # NDWI: -1 to +1
+                idx_norm = self.normalize_for_fusion(index_data, (-1.0, 1.0))
+                idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
+                idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
+            elif index_name in ['persistence', 'seasonal_contrast', 'high_confidence']:
+                # Multi-temporal metrics - already handled with their own ranges
+                # Use simple 0-1 normalization for safety
+                idx_norm = np.clip(index_data, 0, 1)
+                idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
+                idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
+            else:
+                # Default: assume 0-1 range
+                idx_norm = np.clip(index_data, 0, 1)
+                idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
+                idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
+            
             cv2.imwrite(temp_png, idx_colored)
             
             # KML erstellen
