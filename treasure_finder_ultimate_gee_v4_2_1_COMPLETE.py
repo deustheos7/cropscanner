@@ -71,6 +71,20 @@ ADAPTIVE_MIN_CANDIDATE_RATIO = 0.0002  # 0.02%
 ADAPTIVE_RELAXATION_STEPS = (5, 10, 15)
 ADAPTIVE_MIN_CANDIDATE_PIXELS_FLOOR = 50
 
+# NIR Index Value Ranges (for normalization)
+NIR_INDEX_RANGES = {
+    'ndvi': (-1.0, 1.0),
+    'evi': (-1.0, 1.0),
+    'savi': (0.0, 0.5),
+    'ndwi': (-1.0, 1.0),
+    'persistence': (0, 3),
+    'seasonal_contrast': (-0.3, 0.3),
+    'high_confidence': (0, 1)
+}
+
+# Small epsilon for numerical stability
+EPSILON = 1e-8
+
 
 def expand_bbox_wgs84_m(bbox_wgs84: Tuple[float, float, float, float], buffer_m: float) -> Tuple[float, float, float, float]:
     """
@@ -2639,16 +2653,7 @@ class UltimateTreasureFinder:
                 kml_path = os.path.join(output_dir, f"{idx_name}_debug.kml")
                 
                 # *** FIX: Bestimme korrekte vmin/vmax für jeden Index ***
-                if idx_name == 'ndvi':
-                    vmin, vmax = -1.0, 1.0
-                elif idx_name == 'evi':
-                    vmin, vmax = -1.0, 1.0
-                elif idx_name == 'savi':
-                    vmin, vmax = 0.0, 0.5
-                elif idx_name == 'ndwi':
-                    vmin, vmax = -1.0, 1.0
-                else:
-                    vmin, vmax = None, None  # Auto-detect
+                vmin, vmax = NIR_INDEX_RANGES.get(idx_name, (None, None))
                 
                 self.create_nir_debug_kml(idx_data, idx_name, world_params, kml_path, vmin, vmax)
                 output_files[f'{idx_name}_kml'] = kml_path
@@ -2689,7 +2694,9 @@ class UltimateTreasureFinder:
                         vmin=0, vmax=3,
                         description="Years visible (0-3)"
                     )
-                    self.create_nir_debug_kml(persistence_score, 'persistence', world_params, persist_kml, vmin=0, vmax=3)
+                    self.create_nir_debug_kml(persistence_score, 'persistence', world_params, persist_kml, 
+                                            vmin=NIR_INDEX_RANGES['persistence'][0], 
+                                            vmax=NIR_INDEX_RANGES['persistence'][1])
                     
                     output_files['persistence_png'] = persist_png
                     output_files['persistence_kml'] = persist_kml
@@ -2714,7 +2721,9 @@ class UltimateTreasureFinder:
                         vmin=-0.3, vmax=0.3,
                         description="Summer - Spring NDVI"
                     )
-                    self.create_nir_debug_kml(seasonal_contrast, 'seasonal_contrast', world_params, contrast_kml, vmin=-0.3, vmax=0.3)
+                    self.create_nir_debug_kml(seasonal_contrast, 'seasonal_contrast', world_params, contrast_kml, 
+                                            vmin=NIR_INDEX_RANGES['seasonal_contrast'][0], 
+                                            vmax=NIR_INDEX_RANGES['seasonal_contrast'][1])
                     
                     output_files['seasonal_contrast_png'] = contrast_png
                     output_files['seasonal_contrast_kml'] = contrast_kml
@@ -2739,7 +2748,9 @@ class UltimateTreasureFinder:
                         vmin=0, vmax=1,
                         description="High confidence sites (binary)"
                     )
-                    self.create_nir_debug_kml(high_confidence, 'high_confidence', world_params, highconf_kml, vmin=0, vmax=1)
+                    self.create_nir_debug_kml(high_confidence, 'high_confidence', world_params, highconf_kml, 
+                                            vmin=NIR_INDEX_RANGES['high_confidence'][0], 
+                                            vmax=NIR_INDEX_RANGES['high_confidence'][1])
                     
                     output_files['high_confidence_png'] = highconf_png
                     output_files['high_confidence_kml'] = highconf_kml
@@ -2790,7 +2801,7 @@ class UltimateTreasureFinder:
                 vmax = float(index_data.max())
             
             # Normalisiere auf 0-255 mit korrekter Range
-            idx_norm = np.clip((index_data - vmin) / (vmax - vmin + 1e-8), 0, 1)
+            idx_norm = np.clip((index_data - vmin) / (vmax - vmin + EPSILON), 0, 1)
             idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
             idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
             cv2.imwrite(temp_png, idx_colored)
@@ -2877,14 +2888,14 @@ class UltimateTreasureFinder:
                 return False
             
             # *** FIX: Normalisiere jeden Index korrekt auf 0-1 ***
-            # NDVI: -1 bis +1
-            ndvi_norm = np.clip((ndvi + 1.0) / 2.0, 0, 1)
+            ndvi_min, ndvi_max = NIR_INDEX_RANGES['ndvi']
+            ndvi_norm = np.clip((ndvi - ndvi_min) / (ndvi_max - ndvi_min), 0, 1)
             
-            # EVI: -1 bis +1
-            evi_norm = np.clip((evi + 1.0) / 2.0, 0, 1)
+            evi_min, evi_max = NIR_INDEX_RANGES['evi']
+            evi_norm = np.clip((evi - evi_min) / (evi_max - evi_min), 0, 1)
             
-            # SAVI: 0 bis ~0.5
-            savi_norm = np.clip(savi / 0.5, 0, 1)
+            savi_min, savi_max = NIR_INDEX_RANGES['savi']
+            savi_norm = np.clip(savi / savi_max, 0, 1)
             
             # RGB-Komposit: R=NDVI, G=EVI, B=SAVI
             rgb = np.stack([
