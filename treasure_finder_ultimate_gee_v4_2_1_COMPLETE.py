@@ -2680,9 +2680,11 @@ class UltimateTreasureFinder:
                 if persistence_score is not None:
                     # *** FIX: Resize zu LIDAR-Dimensionen! ***
                     if lidar_shape is not None:
+                        orig_shape = persistence_score.shape
                         target_h, target_w = lidar_shape[:2]
+                        self.logger.info(f"     PERSISTENCE Original: {orig_shape}, LIDAR shape: {lidar_shape[:2]}, Target (H,W): ({target_h},{target_w})")
                         persistence_score = cv2.resize(persistence_score, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-                        self.logger.info(f"     PERSISTENCE: Resized zu {persistence_score.shape}")
+                        self.logger.info(f"     PERSISTENCE Resized: {orig_shape} → {persistence_score.shape}")
                     
                     persist_png = os.path.join(output_dir, "persistence_debug.png")
                     persist_kml = os.path.join(output_dir, "persistence_debug.kml")
@@ -2707,9 +2709,11 @@ class UltimateTreasureFinder:
                 if seasonal_contrast is not None:
                     # *** FIX: Resize zu LIDAR-Dimensionen! ***
                     if lidar_shape is not None:
+                        orig_shape = seasonal_contrast.shape
                         target_h, target_w = lidar_shape[:2]
+                        self.logger.info(f"     SEASONAL_CONTRAST Original: {orig_shape}, Target (H,W): ({target_h},{target_w})")
                         seasonal_contrast = cv2.resize(seasonal_contrast, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-                        self.logger.info(f"     SEASONAL_CONTRAST: Resized zu {seasonal_contrast.shape}")
+                        self.logger.info(f"     SEASONAL_CONTRAST Resized: {orig_shape} → {seasonal_contrast.shape}")
                     
                     contrast_png = os.path.join(output_dir, "seasonal_contrast_debug.png")
                     contrast_kml = os.path.join(output_dir, "seasonal_contrast_debug.kml")
@@ -2734,9 +2738,11 @@ class UltimateTreasureFinder:
                 if high_confidence is not None:
                     # *** FIX: Resize zu LIDAR-Dimensionen! ***
                     if lidar_shape is not None:
+                        orig_shape = high_confidence.shape
                         target_h, target_w = lidar_shape[:2]
+                        self.logger.info(f"     HIGH_CONFIDENCE Original: {orig_shape}, Target (H,W): ({target_h},{target_w})")
                         high_confidence = cv2.resize(high_confidence, (target_w, target_h), interpolation=cv2.INTER_NEAREST)  # NEAREST für Binary-Maske!
-                        self.logger.info(f"     HIGH_CONFIDENCE: Resized zu {high_confidence.shape}")
+                        self.logger.info(f"     HIGH_CONFIDENCE Resized: {orig_shape} → {high_confidence.shape}")
                     
                     highconf_png = os.path.join(output_dir, "high_confidence_debug.png")
                     highconf_kml = os.path.join(output_dir, "high_confidence_debug.kml")
