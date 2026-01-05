@@ -2330,12 +2330,18 @@ class UltimateTreasureFinder:
             return False
     
     def save_nir_debug_outputs(self, aerial_details: Dict, world_params: Dict, 
-                               output_dir: str = ".") -> Dict[str, str]:
+                               output_dir: str = ".", lidar_shape: tuple = None) -> Dict[str, str]:
         """
         *** DEBUG FUNKTION ***
         Speichert alle NIR-Indizes als PNG und KML für visuelle Überprüfung.
         
-        *** WICHTIG: Verwendet Original NIR-Daten in voller Auflösung! ***
+        *** WICHTIG: Resized zu LIDAR-Dimensionen für korrekte Ausrichtung! ***
+        
+        Args:
+            aerial_details: Aerial analysis details mit NIR-Daten
+            world_params: LIDAR World-File Parameter (für korrekte Georeferenzierung!)
+            output_dir: Ausgabeverzeichnis für Debug-Dateien
+            lidar_shape: (height, width) des LIDAR-Bildes für Resize
         
         Returns:
             Dict mit Pfaden zu allen generierten Dateien
@@ -2365,7 +2371,7 @@ class UltimateTreasureFinder:
             else:
                 # *** NEU: Berechne Indices aus Original NIR-Daten ***
                 self.logger.info("  ✅ Verwende Original NIR-Daten in voller Auflösung!")
-                self.logger.info(f"  [DEBUG] NIR Shape: {nir_orig.shape}")
+                self.logger.info(f"  [DEBUG] NIR Shape (Original): {nir_orig.shape}")
                 
                 indices = {
                     'ndvi': self.calculate_true_ndvi(nir_orig, red_orig),
@@ -2379,15 +2385,35 @@ class UltimateTreasureFinder:
                 else:
                     indices['evi'] = None
             
+            # *** KRITISCHER FIX: Resize alle Indices zu LIDAR-Dimensionen! ***
+            if lidar_shape is not None:
+                target_h, target_w = lidar_shape[:2]
+                self.logger.info(f"  🔧 [RESIZE] Resize Debug-Dateien zu LIDAR-Dimensionen: {target_w}x{target_h}")
+                
+                resized_indices = {}
+                for name, data in indices.items():
+                    if data is not None:
+                        original_shape = data.shape
+                        # Resize to LIDAR dimensions (width, height in cv2.resize!)
+                        resized = cv2.resize(data, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                        resized_indices[name] = resized
+                        self.logger.info(f"     {name.upper()}: {original_shape} → {resized.shape}")
+                    else:
+                        resized_indices[name] = None
+                
+                indices = resized_indices
+            else:
+                self.logger.warning("  ⚠️ WARNUNG: Keine LIDAR-Dimensionen angegeben, Debug-Dateien haben möglicherweise falsche Größe!")
+            
             # *** DEBUG: Zeige World-Parameter ***
-            self.logger.info(f"  [DEBUG] World-Params: {world_params}")
+            self.logger.info(f"  [DEBUG] World-Params (LIDAR): {world_params}")
             
             output_files = {}
             
-            # *** DEBUG: Zeige Größen ***
+            # *** DEBUG: Zeige finale Größen ***
             for name, data in indices.items():
                 if data is not None:
-                    self.logger.info(f"  [DEBUG] {name.upper()} Shape: {data.shape}")
+                    self.logger.info(f"  [DEBUG] {name.upper()} Shape (Final): {data.shape}")
             
             # Für jeden Index: PNG + KML erstellen
             for idx_name, idx_data in indices.items():
@@ -2508,12 +2534,18 @@ class UltimateTreasureFinder:
             self.logger.info(f"  ✅ Statistiken: {stats_path}")
             
             # *** NEU v4.2.0: Multi-Temporal Debug-Ausgaben! ***
-            if aerial_details.get('mode') == 'ultimate':
+            if aerial_details.get('mode') == 'ultimate' or aerial_details.get('multi_temporal_mode') == 'ultimate':
                 self.logger.info("\n🚀 [MULTI-TEMPORAL] Erstelle zusätzliche Debug-Ausgaben...")
                 
                 # 5. Persistence Debug
                 persistence_score = aerial_details.get('persistence_score')
                 if persistence_score is not None:
+                    # *** FIX: Resize zu LIDAR-Dimensionen! ***
+                    if lidar_shape is not None:
+                        target_h, target_w = lidar_shape[:2]
+                        persistence_score = cv2.resize(persistence_score, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                        self.logger.info(f"     PERSISTENCE: Resized zu {persistence_score.shape}")
+                    
                     persist_png = os.path.join(output_dir, "persistence_debug.png")
                     persist_kml = os.path.join(output_dir, "persistence_debug.kml")
                     
@@ -2533,6 +2565,12 @@ class UltimateTreasureFinder:
                 # 6. Seasonal Contrast Debug
                 seasonal_contrast = aerial_details.get('seasonal_contrast')
                 if seasonal_contrast is not None:
+                    # *** FIX: Resize zu LIDAR-Dimensionen! ***
+                    if lidar_shape is not None:
+                        target_h, target_w = lidar_shape[:2]
+                        seasonal_contrast = cv2.resize(seasonal_contrast, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                        self.logger.info(f"     SEASONAL_CONTRAST: Resized zu {seasonal_contrast.shape}")
+                    
                     contrast_png = os.path.join(output_dir, "seasonal_contrast_debug.png")
                     contrast_kml = os.path.join(output_dir, "seasonal_contrast_debug.kml")
                     
@@ -2552,6 +2590,12 @@ class UltimateTreasureFinder:
                 # 7. High Confidence Debug
                 high_confidence = aerial_details.get('high_confidence_mask')
                 if high_confidence is not None:
+                    # *** FIX: Resize zu LIDAR-Dimensionen! ***
+                    if lidar_shape is not None:
+                        target_h, target_w = lidar_shape[:2]
+                        high_confidence = cv2.resize(high_confidence, (target_w, target_h), interpolation=cv2.INTER_NEAREST)  # NEAREST für Binary-Maske!
+                        self.logger.info(f"     HIGH_CONFIDENCE: Resized zu {high_confidence.shape}")
+                    
                     highconf_png = os.path.join(output_dir, "high_confidence_debug.png")
                     highconf_kml = os.path.join(output_dir, "high_confidence_debug.kml")
                     
@@ -3075,13 +3119,13 @@ class UltimateTreasureFinder:
             if debug_nir and aerial_details and aerial_details.get('has_nir', False):
                 debug_dir = os.path.dirname(output_kml) if output_kml else "."
                 
-                # *** FIX: Verwende NIR World-Parameter, NICHT LIDAR! ***
-                nir_world_params = nir_data.get('world_params', lidar_world)
-                
+                # *** FIX: Verwende LIDAR World-Parameter und LIDAR-Shape für korrekte Ausrichtung! ***
+                # NIR-Daten werden zu LIDAR-Dimensionen resized, damit die Debug-Dateien deckungsgleich sind
                 debug_files = self.save_nir_debug_outputs(
                     aerial_details, 
-                    nir_world_params,  # *** GEÄNDERT: NIR statt LIDAR ***
-                    output_dir=debug_dir
+                    lidar_world,  # *** GEÄNDERT: LIDAR statt NIR für korrekte Georeferenzierung! ***
+                    output_dir=debug_dir,
+                    lidar_shape=lidar_anomaly.shape  # *** NEU: LIDAR-Dimensionen für Resize ***
                 )
                 if debug_files:
                     print("\n🔍 [DEBUG] NIR Debug-Dateien erstellt:")
