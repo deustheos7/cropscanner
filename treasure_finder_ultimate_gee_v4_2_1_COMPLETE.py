@@ -2863,7 +2863,11 @@ class UltimateTreasureFinder:
             return False
     
     def create_nir_rgb_visualization(self, indices: Dict, output_path: str) -> bool:
-        """Erstellt RGB-Komposit aus NIR-Indizes."""
+        """
+        Erstellt RGB-Komposit aus NIR-Indizes.
+        
+        *** FIX: Korrekte Normalisierung der Indices für RGB-Komposit ***
+        """
         try:
             ndvi = indices.get('ndvi')
             evi = indices.get('evi')
@@ -2872,11 +2876,21 @@ class UltimateTreasureFinder:
             if ndvi is None or evi is None or savi is None:
                 return False
             
+            # *** FIX: Normalisiere jeden Index korrekt auf 0-1 ***
+            # NDVI: -1 bis +1
+            ndvi_norm = np.clip((ndvi + 1.0) / 2.0, 0, 1)
+            
+            # EVI: -1 bis +1
+            evi_norm = np.clip((evi + 1.0) / 2.0, 0, 1)
+            
+            # SAVI: 0 bis ~0.5
+            savi_norm = np.clip(savi / 0.5, 0, 1)
+            
             # RGB-Komposit: R=NDVI, G=EVI, B=SAVI
             rgb = np.stack([
-                (ndvi * 255).astype(np.uint8),
-                (evi * 255).astype(np.uint8),
-                (savi * 255).astype(np.uint8)
+                (ndvi_norm * 255).astype(np.uint8),
+                (evi_norm * 255).astype(np.uint8),
+                (savi_norm * 255).astype(np.uint8)
             ], axis=2)
             
             # BGR für OpenCV
