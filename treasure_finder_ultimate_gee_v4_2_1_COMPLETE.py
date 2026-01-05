@@ -11,6 +11,7 @@ Archaeological anomaly detection using multi-source remote sensing:
 VERSION HISTORY:
 - v4.2.1 (2026-01-05): Hotspot Detection Sensitivity Improvements
   * Reduced clustering thresholds (93-97% → 85-92%) for more candidates
+  * Automatic percentile fallback if candidate pixels are too scarce (<0.02%)
   * Reduced DBSCAN min_samples (5 → 3) for smaller feature detection
   * Relaxed invalid hotspot filters (NDVI: -0.2→-0.3, 0.85→0.90; NDWI: 0.7→0.8)
   * Reduced base confidence threshold (0.15 → 0.10)
@@ -64,6 +65,11 @@ try:
     GEE_AVAILABLE = True
 except ImportError:
     GEE_AVAILABLE = False
+
+ADAPTIVE_MIN_PERCENTILE = 70
+ADAPTIVE_MIN_CANDIDATE_RATIO = 0.0002  # 0.02%
+ADAPTIVE_RELAXATION_STEPS = (5, 10, 15)
+ADAPTIVE_MIN_CANDIDATE_PIXELS_FLOOR = 50
 
 
 def expand_bbox_wgs84_m(bbox_wgs84: Tuple[float, float, float, float], buffer_m: float) -> Tuple[float, float, float, float]:
@@ -1992,19 +1998,74 @@ class UltimateTreasureFinder:
             max_val = np.max(correlation_map)
             min_val = np.min(correlation_map)
             self.logger.info(f"  [ADAPTIVE] Std: {std_dev:.3f}, Mean: {mean_val:.3f}, Range: [{min_val:.3f}, {max_val:.3f}]")
-            self.logger.info(f"  [ADAPTIVE] Schwellenwert: {threshold:.3f} ({percentile}. Perzentil)")
             
             binary = (correlation_map > threshold).astype(np.uint8) * 255
-            
             y_coords, x_coords = np.where(binary > 0)
+            
+            total_pixels = correlation_map.size
+            min_candidate_pixels = max(
+                ADAPTIVE_MIN_CANDIDATE_PIXELS_FLOOR,
+                int(ADAPTIVE_MIN_CANDIDATE_RATIO * total_pixels)
+            )  # At least 0.02% or 50 pixels
+            
+            # *** NEW v4.2.1+: Dynamic adjustment if too few candidates remain ***
+            if len(x_coords) < min_candidate_pixels:
+                self.logger.info(f"  [ADAPTIVE] Only {len(x_coords)} pixels above threshold (<{min_candidate_pixels}), relaxing percentile...")
+                
+                best_binary = binary
+                best_x, best_y = x_coords, y_coords
+                best_threshold = threshold
+                best_percentile = percentile
+                # best_* = densest candidate overall, best_valid_* = densest candidate meeting minimum count
+                best_valid_count = -1  # Candidate meeting minimum count
+                best_valid_binary = None
+                best_valid_x = None
+                best_valid_y = None
+                best_valid_threshold = None
+                best_valid_percentile = None
+                
+                for delta in ADAPTIVE_RELAXATION_STEPS:
+                    cand_percentile = int(max(ADAPTIVE_MIN_PERCENTILE, percentile - delta))
+                    
+                    cand_threshold = np.percentile(correlation_map, cand_percentile)
+                    cand_binary = (correlation_map > cand_threshold).astype(np.uint8) * 255
+                    cy, cx = np.where(cand_binary > 0)
+                    
+                    pixel_count = len(cx)
+                    self.logger.info(f"    → {cand_percentile}th percentile: {pixel_count} pixels")
+                    meets_min = pixel_count >= min_candidate_pixels
+                    
+                    if pixel_count > len(best_x):
+                        best_binary, best_x, best_y = cand_binary, cx, cy
+                        best_threshold = cand_threshold
+                        best_percentile = cand_percentile
+                    
+                    if meets_min and pixel_count > best_valid_count:
+                        best_valid_count = pixel_count
+                        best_valid_binary = cand_binary
+                        best_valid_x, best_valid_y = cx, cy
+                        best_valid_threshold = cand_threshold
+                        best_valid_percentile = cand_percentile
+                
+                if best_valid_binary is not None:
+                    binary = best_valid_binary
+                    x_coords, y_coords = best_valid_x, best_valid_y
+                    threshold = best_valid_threshold
+                    percentile = best_valid_percentile
+                else:
+                    binary, x_coords, y_coords = best_binary, best_x, best_y
+                    threshold = best_threshold
+                    percentile = best_percentile
+            else:
+                self.logger.info(f"  [ADAPTIVE] Keeping original threshold ({percentile}th percentile)")
             
             if len(x_coords) == 0:
                 self.logger.warning("Keine Anomalien über Schwellenwert gefunden")
                 self.logger.warning(f"  Möglicherweise zu strenger Schwellenwert. Versuchen Sie niedrigere Perzentile.")
                 return []
             
-            total_pixels = correlation_map.size
             percent_above = (len(x_coords) / total_pixels) * 100
+            self.logger.info(f"  [ADAPTIVE] Threshold: {threshold:.3f} ({percentile}th percentile)")
             self.logger.info(f"  [INFO] {len(x_coords)} Pixel über Schwellenwert ({percent_above:.2f}% der Gesamtfläche)")
             
             if len(x_coords) > max_points:
