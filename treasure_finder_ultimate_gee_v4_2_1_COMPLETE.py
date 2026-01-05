@@ -716,13 +716,14 @@ class GoogleEarthEngineConnector:
             
             # Zähle wie oft NDVI < 0.5 (Anomalie-Threshold)
             anomaly_threshold = 0.5
-            anomaly_masks = [ndvi.lt(anomaly_threshold) for ndvi in crop_ndvis]
+            anomaly_masks = [ndvi.lt(anomaly_threshold).unmask(0) for ndvi in crop_ndvis]
             
             # Summiere: 0 = nie Anomalie, 3 = immer Anomalie
             if len(anomaly_masks) > 0:
                 persistence = anomaly_masks[0]
                 for mask in anomaly_masks[1:]:
                     persistence = persistence.add(mask)
+                persistence = persistence.unmask(0)
             else:
                 persistence = ee.Image.constant(0)
             
@@ -735,14 +736,14 @@ class GoogleEarthEngineConnector:
             self.logger.info(f"   📊 Berechne Seasonal Contrast...")
             
             # Median über alle Crop Szenen
-            crop_composite = ee.ImageCollection(crop_ndvis).median().rename('CROP_NDVI')
+            crop_composite = ee.ImageCollection(crop_ndvis).median().rename('CROP_NDVI').unmask(0)
             
             # Median über alle Soil Szenen (falls vorhanden)
             if len(soil_ndvis) > 0:
-                soil_composite = ee.ImageCollection(soil_ndvis).median().rename('SOIL_NDVI')
+                soil_composite = ee.ImageCollection(soil_ndvis).median().rename('SOIL_NDVI').unmask(0)
                 
                 # Kontrast = Sommer - Frühjahr
-                seasonal_contrast = crop_composite.subtract(soil_composite).rename('CONTRAST')
+                seasonal_contrast = crop_composite.subtract(soil_composite).rename('CONTRAST').unmask(0)
                 
                 self.logger.info(f"      ✅ Contrast berechnet (Crop - Soil)")
             else:
@@ -765,7 +766,7 @@ class GoogleEarthEngineConnector:
                 persistence.gte(2)
                 .And(seasonal_contrast.lt(0.2))
                 .And(crop_composite.lt(0.4))
-            ).rename('HIGH_CONF')
+            ).rename('HIGH_CONF').unmask(0)
             
             self.logger.info(f"      ✅ High Confidence: Persistenz≥2 AND Contrast<0.2 AND NDVI<0.4")
             
@@ -778,7 +779,7 @@ class GoogleEarthEngineConnector:
             # *** FIX: Verwende Median über ALLE Jahre, nicht nur erstes Bild! ***
             # crop_images[0] würde nur EIN Jahr nehmen → potenzielle Lücken!
             # Median kombiniert alle Jahre → maximale Coverage!
-            best_crop = ee.ImageCollection(crop_images).median()
+            best_crop = ee.ImageCollection(crop_images).median().unmask(0)
             self.logger.info(f"      Median über {len(crop_images)} Jahre erstellt")
             
             # Füge alle Metriken hinzu
@@ -786,7 +787,7 @@ class GoogleEarthEngineConnector:
                 persistence.rename('PERSISTENCE'),
                 seasonal_contrast,
                 high_confidence
-            ])
+            ]).unmask(0)
             
             # ═══════════════════════════════════════════════════════════
             # SCHRITT 7: DOWNLOAD
