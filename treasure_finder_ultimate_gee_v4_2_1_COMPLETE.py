@@ -2637,7 +2637,20 @@ class UltimateTreasureFinder:
                 
                 # 2. KML mit Grid-Overlay erstellen
                 kml_path = os.path.join(output_dir, f"{idx_name}_debug.kml")
-                self.create_nir_debug_kml(idx_data, idx_name, world_params, kml_path)
+                
+                # *** FIX: Bestimme korrekte vmin/vmax für jeden Index ***
+                if idx_name == 'ndvi':
+                    vmin, vmax = -1.0, 1.0
+                elif idx_name == 'evi':
+                    vmin, vmax = -1.0, 1.0
+                elif idx_name == 'savi':
+                    vmin, vmax = 0.0, 0.5
+                elif idx_name == 'ndwi':
+                    vmin, vmax = -1.0, 1.0
+                else:
+                    vmin, vmax = None, None  # Auto-detect
+                
+                self.create_nir_debug_kml(idx_data, idx_name, world_params, kml_path, vmin, vmax)
                 output_files[f'{idx_name}_kml'] = kml_path
                 self.logger.info(f"  ✅ {idx_name.upper()} KML: {kml_path}")
             
@@ -2676,7 +2689,7 @@ class UltimateTreasureFinder:
                         vmin=0, vmax=3,
                         description="Years visible (0-3)"
                     )
-                    self.create_nir_debug_kml(persistence_score, 'persistence', world_params, persist_kml)
+                    self.create_nir_debug_kml(persistence_score, 'persistence', world_params, persist_kml, vmin=0, vmax=3)
                     
                     output_files['persistence_png'] = persist_png
                     output_files['persistence_kml'] = persist_kml
@@ -2701,7 +2714,7 @@ class UltimateTreasureFinder:
                         vmin=-0.3, vmax=0.3,
                         description="Summer - Spring NDVI"
                     )
-                    self.create_nir_debug_kml(seasonal_contrast, 'seasonal_contrast', world_params, contrast_kml)
+                    self.create_nir_debug_kml(seasonal_contrast, 'seasonal_contrast', world_params, contrast_kml, vmin=-0.3, vmax=0.3)
                     
                     output_files['seasonal_contrast_png'] = contrast_png
                     output_files['seasonal_contrast_kml'] = contrast_kml
@@ -2726,7 +2739,7 @@ class UltimateTreasureFinder:
                         vmin=0, vmax=1,
                         description="High confidence sites (binary)"
                     )
-                    self.create_nir_debug_kml(high_confidence, 'high_confidence', world_params, highconf_kml)
+                    self.create_nir_debug_kml(high_confidence, 'high_confidence', world_params, highconf_kml, vmin=0, vmax=1)
                     
                     output_files['high_confidence_png'] = highconf_png
                     output_files['high_confidence_kml'] = highconf_kml
@@ -2744,8 +2757,19 @@ class UltimateTreasureFinder:
             return {}
     
     def create_nir_debug_kml(self, index_data: np.ndarray, index_name: str, 
-                            world_params: Dict, output_path: str) -> bool:
-        """Erstellt KML mit Ground-Overlay für NIR-Index."""
+                            world_params: Dict, output_path: str, 
+                            vmin: float = None, vmax: float = None) -> bool:
+        """
+        Erstellt KML mit Ground-Overlay für NIR-Index.
+        
+        Args:
+            index_data: 2D Array mit Index-Daten
+            index_name: Name des Index
+            world_params: World-File Parameter für Georeferenzierung
+            output_path: Pfad für KML-Datei
+            vmin: Minimaler Wert für Normalisierung (None = auto)
+            vmax: Maximaler Wert für Normalisierung (None = auto)
+        """
         try:
             # Berechne Bounds
             h, w = index_data.shape
@@ -2758,8 +2782,17 @@ class UltimateTreasureFinder:
             
             # Erstelle temporäres PNG für Ground-Overlay
             temp_png = output_path.replace('.kml', '_overlay.png')
-            idx_norm = (index_data * 255).astype(np.uint8)
-            idx_colored = cv2.applyColorMap(idx_norm, cv2.COLORMAP_JET)
+            
+            # *** FIX: Korrekte Normalisierung mit vmin/vmax ***
+            if vmin is None:
+                vmin = float(index_data.min())
+            if vmax is None:
+                vmax = float(index_data.max())
+            
+            # Normalisiere auf 0-255 mit korrekter Range
+            idx_norm = np.clip((index_data - vmin) / (vmax - vmin + 1e-8), 0, 1)
+            idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
+            idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
             cv2.imwrite(temp_png, idx_colored)
             
             # KML erstellen
