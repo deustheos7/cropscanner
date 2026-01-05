@@ -1,3 +1,46 @@
+"""
+ULTIMATE TREASURE FINDER - NIR Edition v4.2.1
+==============================================
+
+Archaeological anomaly detection using multi-source remote sensing:
+- LIDAR: Terrain anomalies (buried structures)
+- Sentinel-2 NIR: Vegetation indices (crop marks)
+- Historical Maps: Known structures and paths
+- Multi-temporal Analysis: 3-year persistence
+
+VERSION HISTORY:
+- v4.2.1 (2026-01-05): Hotspot Detection Sensitivity Improvements
+  * Reduced clustering thresholds (93-97% → 85-92%) for more candidates
+  * Reduced DBSCAN min_samples (5 → 3) for smaller feature detection
+  * Relaxed invalid hotspot filters (NDVI: -0.2→-0.3, 0.85→0.90; NDWI: 0.7→0.8)
+  * Reduced base confidence threshold (0.15 → 0.10)
+  * Reduced aerial analysis percentile (85% → 80%)
+  * Reduced LIDAR analysis thresholds (85-90% → 75-85%)
+  * Enhanced logging with detailed statistics
+  * Expected: 10-30 hotspots instead of 1-2
+  * See HOTSPOT_DETECTION_FIXES_v4.2.1.md for details
+
+- v4.2.0 (2026-01-04): Scientific Perfection
+  * Fixed NDWI threshold (0.9 → 0.7)
+  * Added NDVI range checks for seasonal contrast (0.2-0.5)
+  * Removed duplicate function calls
+  * Enhanced NIR index documentation
+  * See AENDERUNGSPROTOKOLL.md for details
+
+SCIENTIFIC FOUNDATION:
+- Tucker (1979): NDVI
+- Huete (1988): SAVI (key for archaeology!)
+- Huete et al. (2002): EVI
+- McFeeters (1996): NDWI
+- Woebbecke et al. (1995): ExG
+
+USAGE:
+  python treasure_finder_ultimate_gee_v4_2_1_COMPLETE.py \\
+    --lidar neuLIDAR.png --lidar-world neuLIDAR.pgw \\
+    --use-gee --gee-project YOUR_PROJECT_ID \\
+    --multi-temporal ultimate
+"""
+
 import numpy as np
 from PIL import Image
 import xml.etree.ElementTree as ET
@@ -1457,7 +1500,8 @@ class UltimateTreasureFinder:
             )
             
             self.logger.info("  [PATTERN] Geometrische Muster...")
-            threshold = np.percentile(aerial_anomaly, 85)
+            # *** FIX v4.2.1: Reduziert von 85 auf 80 für mehr Sensitivität (NIR-Modus) ***
+            threshold = np.percentile(aerial_anomaly, 80)
             binary = (aerial_anomaly > threshold).astype(np.uint8) * 255
             patterns = self.detect_geometric_patterns(binary)
             
@@ -1515,7 +1559,8 @@ class UltimateTreasureFinder:
             )
             
             self.logger.info("  [PATTERN] Geometrische Muster...")
-            threshold = np.percentile(aerial_anomaly, 85)
+            # *** FIX v4.2.1: Reduziert von 85 auf 80 für mehr Sensitivität (RGB-Modus) ***
+            threshold = np.percentile(aerial_anomaly, 80)
             binary = (aerial_anomaly > threshold).astype(np.uint8) * 255
             patterns = self.detect_geometric_patterns(binary)
             
@@ -1666,19 +1711,20 @@ class UltimateTreasureFinder:
             # Adaptive Strategie:
             # - Wenn std hoch (stark variierendes Gelände): Höherer Threshold
             # - Wenn std niedrig (flaches Gelände): Niedrigerer Threshold
+            # *** FIX v4.2.1: Reduziert Perzentile von 85-90 auf 75-85 ***
             
             if std_anom > 0.15:
                 # Stark variierend → Otsu's Methode
                 threshold = mean_anom + 1.5 * std_anom
                 method = "Mean + 1.5σ (variierend)"
             elif std_anom > 0.10:
-                # Mittel → 90. Perzentil
-                threshold = np.percentile(anomaly_map, 90)
-                method = "90. Perzentil (mittel)"
-            else:
-                # Flach → 85. Perzentil
+                # Mittel → 85. Perzentil (war 90)
                 threshold = np.percentile(anomaly_map, 85)
-                method = "85. Perzentil (flach)"
+                method = "85. Perzentil (mittel)"
+            else:
+                # Flach → 75. Perzentil (war 85)
+                threshold = np.percentile(anomaly_map, 75)
+                method = "75. Perzentil (flach)"
             
             self.logger.info(f"  [THRESHOLD] σ={std_anom:.3f}, Methode: {method}, Wert: {threshold:.3f}")
             
@@ -1928,20 +1974,25 @@ class UltimateTreasureFinder:
         """
         try:
             # *** OPTIMIERT: Adaptive Schwellenwerte ***
+            # *** FIX: Reduziert von 93-97% auf 85-92% für bessere Sensitivität ***
             std_dev = np.std(correlation_map)
             mean_val = np.mean(correlation_map)
             
             # Wenn hohe Varianz: Niedrigerer Schwellenwert OK
             # Wenn niedrige Varianz: Höherer Schwellenwert nötig
             if std_dev > 0.15:
-                percentile = 93  # Mehr Variation → niedrigerer Schwellenwert
+                percentile = 85  # Mehr Variation → niedrigerer Schwellenwert (war 93)
             elif std_dev > 0.10:
-                percentile = 95  # Normale Variation
+                percentile = 88  # Normale Variation (war 95)
             else:
-                percentile = 97  # Wenig Variation → höherer Schwellenwert
+                percentile = 92  # Wenig Variation → höherer Schwellenwert (war 97)
             
             threshold = np.percentile(correlation_map, percentile)
-            self.logger.info(f"  [ADAPTIVE] Std: {std_dev:.3f}, Schwellenwert: {threshold:.3f} ({percentile}. Perzentil)")
+            # *** FIX v4.2.1: Erweiterte Statistik-Ausgabe ***
+            max_val = np.max(correlation_map)
+            min_val = np.min(correlation_map)
+            self.logger.info(f"  [ADAPTIVE] Std: {std_dev:.3f}, Mean: {mean_val:.3f}, Range: [{min_val:.3f}, {max_val:.3f}]")
+            self.logger.info(f"  [ADAPTIVE] Schwellenwert: {threshold:.3f} ({percentile}. Perzentil)")
             
             binary = (correlation_map > threshold).astype(np.uint8) * 255
             
@@ -1949,9 +2000,12 @@ class UltimateTreasureFinder:
             
             if len(x_coords) == 0:
                 self.logger.warning("Keine Anomalien über Schwellenwert gefunden")
+                self.logger.warning(f"  Möglicherweise zu strenger Schwellenwert. Versuchen Sie niedrigere Perzentile.")
                 return []
             
-            self.logger.info(f"  [INFO] {len(x_coords)} Pixel über Schwellenwert")
+            total_pixels = correlation_map.size
+            percent_above = (len(x_coords) / total_pixels) * 100
+            self.logger.info(f"  [INFO] {len(x_coords)} Pixel über Schwellenwert ({percent_above:.2f}% der Gesamtfläche)")
             
             if len(x_coords) > max_points:
                 sample_rate = len(x_coords) // max_points
@@ -1977,14 +2031,16 @@ class UltimateTreasureFinder:
             
             self.logger.info(f"  [DBSCAN] eps={eps_pixels} Pixel (~50m, {meters_per_pixel:.2f}m/px)")
             
-            # *** FIX v4.2.0: min_samples erhöht von 3 auf 5 ***
-            # 3 = sehr liberal (viele kleine Cluster, mehr False Positives)
-            # 5 = konservativer (nur stabile Cluster, weniger False Positives)
-            min_samples = 5
+            # *** FIX v4.2.1: min_samples reduziert von 5 auf 3 ***
+            # 5 = zu konservativ (zu wenige Hotspots)
+            # 3 = ausgewogen (genug Sensitivität ohne zu viele False Positives)
+            # Kombiniert mit verbesserten NDVI/NDWI-Filtern für Qualität
+            min_samples = 3
             
             clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(points)
             
-            self.logger.info(f"  [DBSCAN] min_samples={min_samples} (konservativ)")
+            # *** FIX v4.2.1: Aktualisierte Beschreibung (3 ist ausgewogen, nicht konservativ) ***
+            self.logger.info(f"  [DBSCAN] min_samples={min_samples} (ausgewogen)")
             
             hotspots = []
             unique_labels = set(clustering.labels_)
@@ -2126,9 +2182,11 @@ class UltimateTreasureFinder:
                         is_high_confidence = False
                     
                     # *** KRITISCHER FIX: Filtere offensichtliche False Positives ***
+                    # *** FIX v4.2.1: Weniger aggressive Filter für mehr Hotspots ***
                     
-                    # 1. NDVI < -0.2 = Wasser/Schnee/Wolken → KEINE archäologische Fundstelle!
-                    if ndvi_local < -0.2:
+                    # 1. NDVI < -0.3 = Wasser/Schnee/Wolken → KEINE archäologische Fundstelle!
+                    #    (Reduziert von -0.2 auf -0.3 für mehr Toleranz)
+                    if ndvi_local < -0.3:
                         self.logger.debug(f"      [FILTER] Verwerfe Hotspot bei ({px},{py}): NDVI={ndvi_local:.3f} (Wasser/Schnee)")
                         return {
                             'invalid': True,
@@ -2136,9 +2194,10 @@ class UltimateTreasureFinder:
                             'ndvi': ndvi_local
                         }
                     
-                    # 2. NDVI > 0.85 = Dichter Wald → Unwahrscheinlich für archäologische Stätten
+                    # 2. NDVI > 0.90 = Dichter Wald → Unwahrscheinlich für archäologische Stätten
+                    #    (Erhöht von 0.85 auf 0.90 - nur extrem dichte Wälder filtern)
                     #    (außer wenn LIDAR starke Anomalie zeigt)
-                    if ndvi_local > 0.85 and local_relief < 0.3:
+                    if ndvi_local > 0.90 and local_relief < 0.3:
                         self.logger.debug(f"      [FILTER] Verwerfe Hotspot bei ({px},{py}): NDVI={ndvi_local:.3f} (Dichter Wald, keine LIDAR-Anomalie)")
                         return {
                             'invalid': True,
@@ -2146,10 +2205,10 @@ class UltimateTreasureFinder:
                             'ndvi': ndvi_local
                         }
                     
-                    # 3. NDWI > 0.7 = Permanent Wasser → Keine Fundstelle!
-                    #    (0.4-0.6 kann Graben sein, aber >0.7 ist zu nass)
-                    #    *** FIX: Wissenschaftlich korrekt von 0.9 auf 0.7 geändert ***
-                    if ndwi_local > 0.7:
+                    # 3. NDWI > 0.8 = Permanent Wasser → Keine Fundstelle!
+                    #    (Erhöht von 0.7 auf 0.8 - nur offensichtliche Wasserflächen)
+                    #    (0.4-0.6 kann Graben sein, 0.6-0.8 kann alter Wassergraben sein)
+                    if ndwi_local > 0.8:
                         self.logger.debug(f"      [FILTER] Verwerfe Hotspot bei ({px},{py}): NDWI={ndwi_local:.3f} (Permanent Wasser)")
                         return {
                             'invalid': True,
@@ -3181,10 +3240,16 @@ class UltimateTreasureFinder:
             self.logger.warning("Keine Hotspots gefunden!")
             return []
         
+        # *** FIX v4.2.1: Detaillierte Logging für Hotspot-Filtering ***
+        self.logger.info(f"  [CLUSTER] {len(hotspots)} initiale Hotspots gefunden")
+        
         print("\n[ANALYZE] Charakterisierung...")
         valid_hotspots = []  # *** NEU: Nur valide Hotspots ***
+        invalid_count = 0
+        invalid_reasons = {}
+        MAX_REASON_LENGTH = 20  # *** FIX v4.2.1: Named constant für String-Slicing ***
         
-        for hotspot in hotspots:
+        for idx, hotspot in enumerate(hotspots):
             chars = self.analyze_hotspot_characteristics(
                 hotspot['pixel_x'], hotspot['pixel_y'],
                 lidar_details, hist_details, aerial_details,
@@ -3194,7 +3259,17 @@ class UltimateTreasureFinder:
             
             # *** KRITISCHER FIX: Filtere invalide Hotspots ***
             if chars.get('invalid', False):
-                self.logger.info(f"   ❌ [FILTER] Hotspot verworfen: {chars.get('reason', 'unknown')}")
+                reason = chars.get('reason', 'unknown')
+                invalid_count += 1
+                # Sammle Statistiken über Ablehnungsgründe
+                # *** FIX v4.2.1: Robuste Kategorisierung mit Fallback ***
+                try:
+                    reason_key = reason.split(' ')[0] if ' ' in reason else reason[:MAX_REASON_LENGTH]
+                except AttributeError:
+                    # Falls reason nicht String ist
+                    reason_key = 'unknown'
+                invalid_reasons[reason_key] = invalid_reasons.get(reason_key, 0) + 1
+                self.logger.debug(f"   ❌ [FILTER] Hotspot {idx+1}/{len(hotspots)} verworfen: {reason}")
                 continue  # Überspringe diesen Hotspot!
             
             hotspot['characteristics'] = chars
@@ -3202,6 +3277,12 @@ class UltimateTreasureFinder:
         
         # *** Verwende ab jetzt nur noch valid_hotspots ***
         hotspots = valid_hotspots
+        
+        # *** FIX v4.2.1: Detaillierte Statistik über Filterung ***
+        if invalid_count > 0:
+            self.logger.info(f"  [FILTER] {invalid_count} Hotspots als invalid gefiltert:")
+            for reason, count in invalid_reasons.items():
+                self.logger.info(f"    - {reason}: {count}")
         
         if len(hotspots) == 0:
             self.logger.warning("⚠️ Alle Hotspots wurden als invalid gefiltert!")
@@ -3324,8 +3405,9 @@ class UltimateTreasureFinder:
             feature_boost = min(feature_boost, 2.5)  # Max 150% Boost
             
             # *** FIX #3: Base Confidence Threshold ***
+            # *** FIX v4.2.1: Reduziert von 0.15 auf 0.10 für mehr Hotspots ***
             # Zu schwache Hotspots werden nicht geboostet
-            if base_confidence < 0.15:  # Weniger als 15% Base
+            if base_confidence < 0.10:  # Weniger als 10% Base (war 15%)
                 self.logger.debug(f"   [THRESHOLD] Base Confidence zu niedrig ({base_confidence*100:.1f}%), kein Boost")
                 boosted_confidence = base_confidence  # Kein Boost!
             else:
