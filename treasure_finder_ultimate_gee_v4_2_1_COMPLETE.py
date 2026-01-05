@@ -2540,6 +2540,7 @@ class UltimateTreasureFinder:
                 self.logger.warning("  ⚠️ WARNUNG: Keine LIDAR-Dimensionen angegeben, Debug-Dateien haben möglicherweise falsche Größe!")
             
             # *** DEBUG: Zeige World-Parameter ***
+            self.logger.info(f"  [DEBUG] LIDAR Shape: {lidar_shape}")
             self.logger.info(f"  [DEBUG] World-Params (LIDAR): {world_params}")
             
             output_files = {}
