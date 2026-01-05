@@ -2039,7 +2039,8 @@ class UltimateTreasureFinder:
             
             clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(points)
             
-            self.logger.info(f"  [DBSCAN] min_samples={min_samples} (konservativ)")
+            # *** FIX v4.2.1: Aktualisierte Beschreibung (3 ist ausgewogen, nicht konservativ) ***
+            self.logger.info(f"  [DBSCAN] min_samples={min_samples} (ausgewogen)")
             
             hotspots = []
             unique_labels = set(clustering.labels_)
@@ -3263,7 +3264,8 @@ class UltimateTreasureFinder:
                 # *** FIX v4.2.1: Robuste Kategorisierung mit Fallback ***
                 try:
                     reason_key = reason.split(' ')[0] if ' ' in reason else reason[:20]
-                except (AttributeError, IndexError):
+                except AttributeError:
+                    # Falls reason nicht String ist
                     reason_key = 'unknown'
                 invalid_reasons[reason_key] = invalid_reasons.get(reason_key, 0) + 1
                 self.logger.debug(f"   ❌ [FILTER] Hotspot {idx+1}/{len(hotspots)} verworfen: {reason}")
