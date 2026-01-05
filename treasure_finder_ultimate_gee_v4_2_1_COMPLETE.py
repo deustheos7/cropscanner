@@ -1,3 +1,46 @@
+"""
+ULTIMATE TREASURE FINDER - NIR Edition v4.2.1
+==============================================
+
+Archaeological anomaly detection using multi-source remote sensing:
+- LIDAR: Terrain anomalies (buried structures)
+- Sentinel-2 NIR: Vegetation indices (crop marks)
+- Historical Maps: Known structures and paths
+- Multi-temporal Analysis: 3-year persistence
+
+VERSION HISTORY:
+- v4.2.1 (2026-01-05): Hotspot Detection Sensitivity Improvements
+  * Reduced clustering thresholds (93-97% → 85-92%) for more candidates
+  * Reduced DBSCAN min_samples (5 → 3) for smaller feature detection
+  * Relaxed invalid hotspot filters (NDVI: -0.2→-0.3, 0.85→0.90; NDWI: 0.7→0.8)
+  * Reduced base confidence threshold (0.15 → 0.10)
+  * Reduced aerial analysis percentile (85% → 80%)
+  * Reduced LIDAR analysis thresholds (85-90% → 75-85%)
+  * Enhanced logging with detailed statistics
+  * Expected: 10-30 hotspots instead of 1-2
+  * See HOTSPOT_DETECTION_FIXES_v4.2.1.md for details
+
+- v4.2.0 (2026-01-04): Scientific Perfection
+  * Fixed NDWI threshold (0.9 → 0.7)
+  * Added NDVI range checks for seasonal contrast (0.2-0.5)
+  * Removed duplicate function calls
+  * Enhanced NIR index documentation
+  * See AENDERUNGSPROTOKOLL.md for details
+
+SCIENTIFIC FOUNDATION:
+- Tucker (1979): NDVI
+- Huete (1988): SAVI (key for archaeology!)
+- Huete et al. (2002): EVI
+- McFeeters (1996): NDWI
+- Woebbecke et al. (1995): ExG
+
+USAGE:
+  python treasure_finder_ultimate_gee_v4_2_1_COMPLETE.py \\
+    --lidar neuLIDAR.png --lidar-world neuLIDAR.pgw \\
+    --use-gee --gee-project YOUR_PROJECT_ID \\
+    --multi-temporal ultimate
+"""
+
 import numpy as np
 from PIL import Image
 import xml.etree.ElementTree as ET
