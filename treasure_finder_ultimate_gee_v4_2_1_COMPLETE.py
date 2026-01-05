@@ -3260,7 +3260,11 @@ class UltimateTreasureFinder:
                 reason = chars.get('reason', 'unknown')
                 invalid_count += 1
                 # Sammle Statistiken über Ablehnungsgründe
-                reason_key = reason.split(' ')[0]  # Erster Teil als Kategorie
+                # *** FIX v4.2.1: Robuste Kategorisierung mit Fallback ***
+                try:
+                    reason_key = reason.split(' ')[0] if ' ' in reason else reason[:20]
+                except (AttributeError, IndexError):
+                    reason_key = 'unknown'
                 invalid_reasons[reason_key] = invalid_reasons.get(reason_key, 0) + 1
                 self.logger.debug(f"   ❌ [FILTER] Hotspot {idx+1}/{len(hotspots)} verworfen: {reason}")
                 continue  # Überspringe diesen Hotspot!
