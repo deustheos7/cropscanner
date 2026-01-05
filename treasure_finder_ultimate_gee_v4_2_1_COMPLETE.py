@@ -3247,6 +3247,7 @@ class UltimateTreasureFinder:
         valid_hotspots = []  # *** NEU: Nur valide Hotspots ***
         invalid_count = 0
         invalid_reasons = {}
+        MAX_REASON_LENGTH = 20  # *** FIX v4.2.1: Named constant für String-Slicing ***
         
         for idx, hotspot in enumerate(hotspots):
             chars = self.analyze_hotspot_characteristics(
@@ -3263,7 +3264,7 @@ class UltimateTreasureFinder:
                 # Sammle Statistiken über Ablehnungsgründe
                 # *** FIX v4.2.1: Robuste Kategorisierung mit Fallback ***
                 try:
-                    reason_key = reason.split(' ')[0] if ' ' in reason else reason[:20]
+                    reason_key = reason.split(' ')[0] if ' ' in reason else reason[:MAX_REASON_LENGTH]
                 except AttributeError:
                     # Falls reason nicht String ist
                     reason_key = 'unknown'
