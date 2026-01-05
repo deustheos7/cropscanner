@@ -66,6 +66,11 @@ try:
 except ImportError:
     GEE_AVAILABLE = False
 
+ADAPTIVE_MIN_PERCENTILE = 70
+ADAPTIVE_MIN_CANDIDATE_RATIO = 0.0002  # 0.02%
+ADAPTIVE_RELAXATION_STEPS = (5, 10, 15)
+ADAPTIVE_MIN_CANDIDATE_PIXELS_FLOOR = 50
+
 
 def expand_bbox_wgs84_m(bbox_wgs84: Tuple[float, float, float, float], buffer_m: float) -> Tuple[float, float, float, float]:
     """
@@ -1998,40 +2003,61 @@ class UltimateTreasureFinder:
             y_coords, x_coords = np.where(binary > 0)
             
             total_pixels = correlation_map.size
-            min_candidate_pixels = max(50, int(0.0002 * total_pixels))  # Mindestens 0.02% oder 50 Pixel
+            min_candidate_pixels = max(
+                ADAPTIVE_MIN_CANDIDATE_PIXELS_FLOOR,
+                int(ADAPTIVE_MIN_CANDIDATE_RATIO * total_pixels)
+            )  # At least 0.02% or 50 pixels
             
-            # *** NEU v4.2.1+: Dynamische Nachjustierung, falls zu wenige Kandidaten ***
+            # *** NEW v4.2.1+: Dynamic adjustment if too few candidates remain ***
             if len(x_coords) < min_candidate_pixels:
-                self.logger.info(f"  [ADAPTIVE] Nur {len(x_coords)} Pixel über Schwelle (<{min_candidate_pixels}), lockere Perzentil...")
+                self.logger.info(f"  [ADAPTIVE] Only {len(x_coords)} pixels above threshold (<{min_candidate_pixels}), relaxing percentile...")
                 
                 best_binary = binary
                 best_x, best_y = x_coords, y_coords
                 best_threshold = threshold
                 best_percentile = percentile
+                # best_* = densest candidate overall, best_valid_* = densest candidate meeting minimum count
+                best_valid_count = -1  # Candidate meeting minimum count
+                best_valid_binary = None
+                best_valid_x = None
+                best_valid_y = None
+                best_valid_threshold = None
+                best_valid_percentile = None
                 
-                for delta in (5, 10, 15):
-                    cand_percentile = max(70, percentile - delta)
-                    if cand_percentile == best_percentile:
-                        continue
+                for delta in ADAPTIVE_RELAXATION_STEPS:
+                    cand_percentile = int(max(ADAPTIVE_MIN_PERCENTILE, percentile - delta))
                     
                     cand_threshold = np.percentile(correlation_map, cand_percentile)
                     cand_binary = (correlation_map > cand_threshold).astype(np.uint8) * 255
                     cy, cx = np.where(cand_binary > 0)
                     
-                    self.logger.info(f"    → {cand_percentile}. Perzentil: {len(cx)} Pixel")
+                    pixel_count = len(cx)
+                    self.logger.info(f"    → {cand_percentile}th percentile: {pixel_count} pixels")
+                    meets_min = pixel_count >= min_candidate_pixels
                     
-                    if len(cx) > len(best_x):
+                    if pixel_count > len(best_x):
                         best_binary, best_x, best_y = cand_binary, cx, cy
                         best_threshold = cand_threshold
                         best_percentile = cand_percentile
                     
-                    if len(cx) >= min_candidate_pixels:
-                        break
+                    if meets_min and pixel_count > best_valid_count:
+                        best_valid_count = pixel_count
+                        best_valid_binary = cand_binary
+                        best_valid_x, best_valid_y = cx, cy
+                        best_valid_threshold = cand_threshold
+                        best_valid_percentile = cand_percentile
                 
-                binary = best_binary
-                x_coords, y_coords = best_x, best_y
-                threshold = best_threshold
-                percentile = best_percentile
+                if best_valid_binary is not None:
+                    binary = best_valid_binary
+                    x_coords, y_coords = best_valid_x, best_valid_y
+                    threshold = best_valid_threshold
+                    percentile = best_valid_percentile
+                else:
+                    binary, x_coords, y_coords = best_binary, best_x, best_y
+                    threshold = best_threshold
+                    percentile = best_percentile
+            else:
+                self.logger.info(f"  [ADAPTIVE] Keeping original threshold ({percentile}th percentile)")
             
             if len(x_coords) == 0:
                 self.logger.warning("Keine Anomalien über Schwellenwert gefunden")
@@ -2039,7 +2065,7 @@ class UltimateTreasureFinder:
                 return []
             
             percent_above = (len(x_coords) / total_pixels) * 100
-            self.logger.info(f"  [ADAPTIVE] Schwellenwert: {threshold:.3f} ({percentile}. Perzentil)")
+            self.logger.info(f"  [ADAPTIVE] Threshold: {threshold:.3f} ({percentile}th percentile)")
             self.logger.info(f"  [INFO] {len(x_coords)} Pixel über Schwellenwert ({percent_above:.2f}% der Gesamtfläche)")
             
             if len(x_coords) > max_points:
