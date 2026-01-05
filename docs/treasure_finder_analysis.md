@@ -228,7 +228,7 @@ When `--debug-nir` flag is enabled:
 
 ## 3. Major Functions/Classes and Their Roles
 
-### 3.1 `GoogleEarthEngineConnector` Class (Lines 111-920)
+### 3.1 `GoogleEarthEngineConnector` Class (Lines 111-921)
 
 **Purpose:** Manages Google Earth Engine API interaction and Sentinel-2 data download.
 
@@ -266,9 +266,11 @@ When `--debug-nir` flag is enabled:
 - Converts LIDAR world file parameters to WGS84 bounding box
 - Accounts for pixel dimensions and coordinate system
 
-### 3.2 `UltimateTreasureFinder` Class (Lines 922-3499)
+### 3.2 `UltimateTreasureFinder` Class (Lines 922-3500)
 
 **Purpose:** Main analysis orchestrator integrating all data sources.
+
+*Note: The class methods extend to line 3500, immediately before the `main()` function which begins at line 3501.*
 
 **Constructor `__init__(log_level, gee_config)`** (Lines 927-955)
 - Initializes logging
@@ -277,7 +279,7 @@ When `--debug-nir` flag is enabled:
 
 **Core Analysis Methods:**
 
-**`advanced_lidar_analysis(lidar_image, world_params)`** (Lines 1589-1767)
+**`advanced_lidar_analysis(lidar_image, world_params)`** (Lines 1589-1768)
 - **Input:** Grayscale LIDAR elevation model
 - **Output:** Anomaly map + details dictionary
 - **Process:**
@@ -514,14 +516,19 @@ When `--debug-nir` flag is enabled:
 - **Recommendation:** Consider adding temporal consistency check for urban masking
 
 **Observation #2: Fixed Latitude Assumption**
-- **Location:** Multiple locations (Lines 1614, 2181, 2084)
+- **Location:** Multiple locations throughout code
+  - Line 1614: LIDAR kernel size calculation
+  - Line 2084: DBSCAN epsilon calculation  
+  - Line 2181: Hotspot characteristics radius
+  - Line 96: expand_bbox_wgs84_m function
 - **Code:** `np.cos(np.radians(47))  # ~Mitteleuropa`
 - **Analysis:** Hard-coded latitude of 47° for degree-to-meter conversion
 - **Edge Case:** Using script far from mid-latitudes (e.g., equator or polar regions) will have incorrect distance calculations
-- **Impact:**
-  - At equator (0°): Error of ~33% (111km vs 75km per degree)
-  - At 60° latitude: Error of ~51% (56km actual vs 75km calculated)
-- **Severity:** Medium for global use, Low for European archaeological surveys
+- **Impact Examples:**
+  - At equator (0°): 111.32 km/° actual vs 74.8 km/° calculated = **33% underestimate**
+  - At 60° latitude: 55.6 km/° actual vs 74.8 km/° calculated = **34% overestimate**
+  - At 30° latitude: 96.5 km/° actual vs 74.8 km/° calculated = **22% underestimate**
+- **Severity:** Medium for global use, Low for European archaeological surveys (40-50°N range)
 - **Recommendation:** Extract actual latitude from world file or image center
 - **Suggested Fix:**
   ```python
