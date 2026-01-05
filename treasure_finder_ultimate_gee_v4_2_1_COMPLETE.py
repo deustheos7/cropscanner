@@ -1668,19 +1668,20 @@ class UltimateTreasureFinder:
             # Adaptive Strategie:
             # - Wenn std hoch (stark variierendes Gelände): Höherer Threshold
             # - Wenn std niedrig (flaches Gelände): Niedrigerer Threshold
+            # *** FIX v4.2.1: Reduziert Perzentile von 85-90 auf 75-85 ***
             
             if std_anom > 0.15:
                 # Stark variierend → Otsu's Methode
                 threshold = mean_anom + 1.5 * std_anom
                 method = "Mean + 1.5σ (variierend)"
             elif std_anom > 0.10:
-                # Mittel → 90. Perzentil
-                threshold = np.percentile(anomaly_map, 90)
-                method = "90. Perzentil (mittel)"
-            else:
-                # Flach → 85. Perzentil
+                # Mittel → 85. Perzentil (war 90)
                 threshold = np.percentile(anomaly_map, 85)
-                method = "85. Perzentil (flach)"
+                method = "85. Perzentil (mittel)"
+            else:
+                # Flach → 75. Perzentil (war 85)
+                threshold = np.percentile(anomaly_map, 75)
+                method = "75. Perzentil (flach)"
             
             self.logger.info(f"  [THRESHOLD] σ={std_anom:.3f}, Methode: {method}, Wert: {threshold:.3f}")
             
