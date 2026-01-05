@@ -2800,9 +2800,15 @@ class UltimateTreasureFinder:
             if vmax is None:
                 vmax = float(index_data.max())
             
-            # Normalisiere auf 0-255 mit korrekter Range
-            idx_norm = np.clip((index_data - vmin) / (vmax - vmin + EPSILON), 0, 1)
-            idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
+            # Validiere vmin < vmax
+            if vmax <= vmin:
+                self.logger.warning(f"⚠️ vmax ({vmax}) <= vmin ({vmin}), verwende Fallback-Normalisierung")
+                # Fallback: Wenn alle Werte gleich sind, erstelle einfarbiges Bild
+                idx_norm_uint8 = np.full(index_data.shape, 127, dtype=np.uint8)
+            else:
+                # Normalisiere auf 0-255 mit korrekter Range
+                idx_norm = np.clip((index_data - vmin) / (vmax - vmin), 0, 1)
+                idx_norm_uint8 = (idx_norm * 255).astype(np.uint8)
             idx_colored = cv2.applyColorMap(idx_norm_uint8, cv2.COLORMAP_JET)
             cv2.imwrite(temp_png, idx_colored)
             
@@ -2895,7 +2901,7 @@ class UltimateTreasureFinder:
             evi_norm = np.clip((evi - evi_min) / (evi_max - evi_min), 0, 1)
             
             savi_min, savi_max = NIR_INDEX_RANGES['savi']
-            savi_norm = np.clip(savi / savi_max, 0, 1)
+            savi_norm = np.clip((savi - savi_min) / (savi_max - savi_min), 0, 1)
             
             # RGB-Komposit: R=NDVI, G=EVI, B=SAVI
             rgb = np.stack([
